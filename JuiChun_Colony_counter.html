@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Colony Counter v1.3: Adaptive Lighting</title>
+    <style>
+        /* --- CSS 變數 --- */
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --danger: #dc2626;
+            --bg-app: #f8fafc;
+            --bg-panel: #ffffff;
+            --border: #e2e8f0;
+            --text-main: #334155;
+            --text-sub: #64748b;
+            
+            /* Debug Mode */
+            --debug-bg: #1e293b;
+            --debug-text: #e2e8f0;
+            --debug-border: #334155;
+            --debug-input-bg: #334155;
+        }
+
+        * { box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: var(--bg-app); margin: 0; padding: 0; color: var(--text-main); display: flex; flex-direction: column; user-select: none; }
+
+        .app-container { display: grid; grid-template-columns: 360px 1fr; height: 100%; width: 100%; }
+
+        /* Sidebar & Debug Styles */
+        .sidebar { background: var(--bg-panel); border-right: 1px solid var(--border); height: 100%; display: flex; flex-direction: column; overflow-y: auto; z-index: 10; transition: background-color 0.3s, color 0.3s; }
+        .sidebar.debug { background: var(--debug-bg); color: var(--debug-text); border-right-color: var(--debug-border); }
+        .sidebar.debug .sidebar-section { border-bottom-color: var(--debug-border); }
+        .sidebar.debug .brand-section { background: var(--debug-bg); border-bottom-color: var(--debug-border); }
+        .sidebar.debug .app-title { color: #fff; }
+        .sidebar.debug .slider-label { color: #cbd5e1; }
+        .sidebar.debug .file-list { background: #0f172a; border-color: var(--debug-border); }
+        .sidebar.debug .file-item { background: #1e293b; border-bottom-color: var(--debug-border); color: #fff; }
+        .sidebar.debug .file-item:hover { background: #334155; }
+        .sidebar.debug .file-item.active { background: #1d4ed8; border-left-color: #60a5fa; }
+        .sidebar.debug .btn-tiny { background: var(--debug-input-bg); border-color: #475569; color: #fff; }
+        .sidebar.debug .toggle-btn { background: var(--debug-input-bg); border-color: #475569; color: #fff; }
+        .sidebar.debug .toggle-btn.active { background: var(--primary); border-color: var(--primary); }
+        .sidebar.debug .btn-outline { background: transparent; border-color: #475569; color: #fff; }
+        .sidebar.debug .btn-outline:hover { background: rgba(255,255,255,0.1); }
+
+        .sidebar-section { padding: 15px; border-bottom: 1px solid var(--border); }
+        .brand-section { padding: 15px; border-bottom: 1px solid var(--border); text-align: center; background: #fff; }
+        .app-title { margin: 0; font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .contact-info { font-size: 0.75rem; color: var(--text-sub); margin-top: 6px; }
+        .contact-info a { color: var(--primary); text-decoration: none; }
+
+        .debug-switch-container { display: flex; justify-content: center; margin-bottom: 5px; }
+        .debug-switch { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem; font-weight: 600; background: #f1f5f9; padding: 4px 12px; border-radius: 20px; border: 1px solid #cbd5e1; transition: 0.3s; }
+        .sidebar.debug .debug-switch { background: #334155; border-color: #475569; color: #fff; }
+        .debug-icon { transition: transform 0.3s; }
+        .sidebar.debug .debug-icon { transform: rotate(180deg); }
+
+        #viewOptions { display: none; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 6px; margin-bottom: 10px; }
+        .sidebar.debug #viewOptions { display: block; }
+        .view-btn-row { display: flex; gap: 5px; }
+        .view-btn { flex: 1; padding: 6px; font-size: 0.8rem; border: 1px solid transparent; background: rgba(255,255,255,0.1); color: #ccc; border-radius: 4px; cursor: pointer; }
+        .view-btn.active { background: #fff; color: #000; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+
+        .header-stats { text-align: center; }
+        .count-big { font-size: 3.5rem; font-weight: 800; color: var(--primary); margin: 5px 0; }
+        .current-file-name { font-size: 0.85rem; color: var(--text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .file-list { max-height: 150px; overflow-y: auto; background: #f1f5f9; border: 1px solid var(--border); border-radius: 6px; margin-top: 10px; }
+        .file-item { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; cursor: pointer; background: white; display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; transition: background 0.2s; }
+        .file-item:hover { background: #f8fafc; }
+        .file-item.active { background: #eff6ff; border-left: 4px solid var(--primary); }
+        .file-badge { background: #cbd5e1; color: #475569; padding: 2px 6px; border-radius: 10px; font-size: 0.7rem; font-weight: bold; flex-shrink: 0; }
+        .file-item.active .file-badge { background: var(--primary); color: white; }
+
+        .controls-area { display: flex; flex-direction: column; gap: 15px; }
+        .slider-group { margin-bottom: 0; }
+        .slider-label { display: flex; justify-content: space-between; font-size: 0.85rem; font-weight: 600; margin-bottom: 4px; color: var(--text-main); }
+        .help-text { font-size: 0.7rem; color: #94a3b8; margin-top: 4px; display: flex; justify-content: space-between; }
+        .slider-wrapper { display: flex; align-items: center; gap: 8px; }
+        input[type="range"] { flex: 1; cursor: pointer; }
+        input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; filter: grayscale(100%); }
+        .slider-wrapper.locked { opacity: 0.5; pointer-events: none; }
+
+        .btn-tiny { width: 28px; height: 28px; border: 1px solid #cbd5e1; background: #f1f5f9; border-radius: 4px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-weight: bold; color: #475569; padding: 0; flex-shrink: 0; touch-action: manipulation; }
+        .btn-tiny:hover:not(:disabled) { background: #e2e8f0; color: var(--primary); }
+        .btn-tiny:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .toggle-btn { background: #f1f5f9; border: 1px solid var(--border); padding: 8px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; width: 100%; color: var(--text-main); transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 5px; }
+        .toggle-btn.active { background: #dbeafe; border-color: var(--primary); color: var(--primary); font-weight: bold; }
+        
+        .btn { border: none; padding: 10px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; font-size: 0.9rem; width: 100%; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-outline { background: white; border: 1px solid var(--border); color: var(--text-main); }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-row { display: flex; gap: 8px; }
+
+        .canvas-container { position: relative; background: #334155; overflow: hidden; display: flex; justify-content: center; align-items: center; cursor: none; width: 100%; height: 100%; }
+        canvas { display: block; image-rendering: pixelated; }
+        #placeholder { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: rgba(255,255,255,0.3); display: flex; flexDirection: column; align-items: center; gap: 15px; pointer-events: none; z-index: 5; }
+
+        .toolbar { position: absolute; bottom: 20px; right: 20px; display: flex; gap: 5px; background: rgba(255,255,255,0.9); padding: 5px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); z-index: 20; cursor: default; }
+        .tool-btn { width: 36px; height: 36px; border: 1px solid #cbd5e1; background: white; border-radius: 6px; cursor: pointer; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; }
+
+        .loading-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: transparent; pointer-events: none; color: white; display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 50; }
+        .spinner { border: 4px solid rgba(255,255,255,0.6); border-top: 4px solid var(--primary); border-radius: 50%; width: 40px; height: 40px; animation: spin 0.8s linear infinite; margin-bottom: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .loading-overlay span { text-shadow: 0 2px 4px rgba(0,0,0,0.9); font-weight: bold; font-size: 1.1rem; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .toast { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: white; padding: 8px 16px; border-radius: 20px; font-size: 0.85rem; pointer-events: none; opacity: 0; transition: opacity 0.3s; z-index: 60; }
+        .mode-indicator { position: absolute; top: 15px; left: 50%; transform: translateX(-50%); background: rgba(251, 191, 36, 0.95); color: #78350f; padding: 8px 20px; border-radius: 30px; font-weight: bold; font-size: 0.9rem; box-shadow: 0 4px 12px rgba(0,0,0,0.2); pointer-events: none; opacity: 0; transition: opacity 0.3s; z-index: 40; display: flex; align-items: center; gap: 8px; }
+        .mode-indicator.delete-mode { background: rgba(248, 113, 113, 0.95); color: white; }
+
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; display: none; justify-content: center; align-items: center; cursor: default; }
+        .modal-box { background: white; padding: 25px; border-radius: 12px; width: 90%; max-width: 400px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); text-align: center; }
+        .modal-msg { margin-bottom: 20px; font-size: 1rem; color: #334155; line-height: 1.5; white-space: pre-line; }
+        .modal-btns { display: flex; gap: 10px; justify-content: center; margin-top: 20px;}
+        .modal-btns button { width: auto; padding: 10px 20px; min-width: 100px; }
+
+        @media (max-width: 768px) { .app-container { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } .sidebar { height: 45vh; border-bottom: 1px solid var(--border); } }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <div class="sidebar" id="sidebar">
+        <div class="brand-section">
+            <h1 class="app-title"><span>🐸</span> JuiChun_Colony_Counter</h1>
+            <div class="contact-info">Contact: <a href="mailto:allenphant11@gmail.com">allenphant11@gmail.com</a></div>
+        </div>
+
+        <div class="sidebar-section">
+            <div class="header-stats">
+                <div id="displayCount" class="count-big">0</div>
+                <div id="displayName" class="current-file-name">No Image</div>
+            </div>
+            <div style="margin-top: 15px;">
+                <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">📂 Add Images</button>
+                <input type="file" id="fileInput" multiple accept="image/*" style="display:none" onchange="handleFiles(event)">
+            </div>
+            <div class="file-list" id="fileList"><div style="padding:15px; text-align:center; color:#94a3b8; font-size:0.8rem;">List Empty</div></div>
+        </div>
+
+        <div class="sidebar-section">
+            <h4 style="margin:0 0 10px 0; font-size:0.9rem; color:var(--text-sub);">1. Petri Dish ROI</h4>
+            <div class="btn-row" style="margin-bottom: 10px;">
+                <button class="toggle-btn" id="btnEditROI" onclick="clickToggleROI()">🖐️ Move/Resize Mask</button>
+                <button class="toggle-btn" style="color:var(--danger); border-color: #fecaca; background: #fef2f2;" onclick="clickReset()">↺ Reset ROI & Markers</button>
+            </div>
+            <div class="slider-group">
+                <div class="slider-label"><span>Mask Radius</span><span id="valMask">90%</span></div>
+                <div class="slider-wrapper">
+                    <button class="btn-tiny" onmousedown="startAdjust('rangeMask', -1)" onmouseup="stopAdjust()" onmouseleave="stopAdjust()" ontouchstart="startAdjust('rangeMask', -1)" ontouchend="stopAdjust()" id="btnMaskDec" disabled>−</button>
+                    <input type="range" id="rangeMask" min="10" max="100" value="90" oninput="updateROIParam()" disabled>
+                    <button class="btn-tiny" onmousedown="startAdjust('rangeMask', 1)" onmouseup="stopAdjust()" onmouseleave="stopAdjust()" ontouchstart="startAdjust('rangeMask', 1)" ontouchend="stopAdjust()" id="btnMaskInc" disabled>+</button>
+                </div>
+                <div class="help-text"><span>Smaller</span><span>Larger</span></div>
+            </div>
+        </div>
+
+        <div class="sidebar-section controls-area">
+            <h4 style="margin:0; font-size:0.9rem; color:var(--text-sub);">2. Detection (Dist. Transform)</h4>
+
+            <div class="debug-switch-container">
+                <div class="debug-switch" onclick="toggleDebugMode()">
+                    <span class="debug-icon">🐞</span> Debug Mode
+                </div>
+            </div>
+
+            <div id="viewOptions">
+                <div style="font-size:0.75rem; color:#94a3b8; margin-bottom:5px; text-align:left; font-weight:bold;">VIEW LAYER</div>
+                <div class="view-btn-row">
+                    <button class="view-btn active" id="btnViewOrig" onclick="setViewLayer('original')">🖼️ Original</button>
+                    <button class="view-btn" id="btnViewBin" onclick="setViewLayer('binary')">⚫ Binary</button>
+                </div>
+            </div>
+            
+            <!-- Adaptive Threshold Controls -->
+            <div class="slider-group">
+                <div class="slider-label"><span>A. Adaptive Sens. (Contrast)</span><span id="valAdaptSens">10</span></div>
+                <div class="slider-wrapper" id="wrapAdaptSens">
+                    <button class="btn-tiny" onmousedown="startAdjust('rangeAdaptSens', -1)" onmouseup="stopAdjust()" onmouseleave="stopAdjust()" ontouchstart="startAdjust('rangeAdaptSens', -1)" ontouchend="stopAdjust()">−</button>
+                    <input type="range" id="rangeAdaptSens" min="0" max="100" value="10" 
+                           oninput="handleSliderInput(this, 'adaptSens')" 
+                           onchange="handleSliderChange(this, 'adaptSens')">
+                    <button class="btn-tiny" onmousedown="startAdjust('rangeAdaptSens', 1)" onmouseup="stopAdjust()" onmouseleave="stopAdjust()" ontouchstart="startAdjust('rangeAdaptSens', 1)" ontouchend="stopAdjust()">+</button>
+                </div>
+                <!-- 修正說明：左寬鬆(Faint/Transparent)，右嚴格(High Contrast) -->
+                <div class="help-text"><span>Faint/Transparent</span><span>High Contrast</span></div>
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-label"><span>B. Background Radius</span><span id="valAdaptRad">20</span></div>
+                <div class="slider-wrapper" id="wrapAdaptRad">
+                    <button class="btn-tiny" onmousedown="startAdjust('rangeAdaptRad', -5)" onmouseup="stopAdjust()" onmouseleave="stopAdjust()" ontouchstart="startAdjust('rangeAdaptRad', -5)" ontouchend="stopAdjust()">−</button>
+                    <input type="range" id="rangeAdaptRad" min="5" max="100" value="20" step="1"
+                           oninput="handleSliderInput(this, 'adaptRad')" 
+                           onchange="handleSliderChange(this, 'adaptRad')">
+                    <button class="btn-tiny" onmousedown="startAdjust('rangeAdaptRad', 1)" onmouseup="stopAdjust()" onmouseleave="stopAdjust()" ontouchstart="startAdjust('rangeAdaptRad', 5)" ontouchend="stopAdjust()">+</button>
+                </div>
+                <!-- 修正說明：場景 -->
+                <div class="help-text"><span>Uneven Light</span><span>Uniform Light</span></div>
+            </div>
+            
+            <div class="slider-group">
+                <div class="slider-label"><span>C. Min Peak Height</span><span id="valSize">3</span></div>
+                <div class="slider-wrapper" id="wrapSize">
+                    <button class="btn-tiny" onmousedown="startAdjust('rangeSize', -1)" onmouseup="stopAdjust()" onmouseleave="stopAdjust()" ontouchstart="startAdjust('rangeSize', -1)" ontouchend="stopAdjust()">−</button>
+                    <input type="range" id="rangeSize" min="1" max="50" value="3" 
+                           oninput="handleSliderInput(this, 'minSize')" 
+                           onchange="handleSliderChange(this, 'minSize')">
+                    <button class="btn-tiny" onmousedown="startAdjust('rangeSize', 1)" onmouseup="stopAdjust()" onmouseleave="stopAdjust()" ontouchstart="startAdjust('rangeSize', 1)" ontouchend="stopAdjust()">+</button>
+                </div>
+                <!-- 修正說明：場景 -->
+                <div class="help-text"><span>Keep Tiny</span><span>Remove Noise</span></div>
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-label"><span>D. Split Distance</span><span id="valSplit">10</span></div>
+                <div class="slider-wrapper" id="wrapSplit">
+                    <button class="btn-tiny" onmousedown="startAdjust('rangeSplit', -1)" onmouseup="stopAdjust()" onmouseleave="stopAdjust()" ontouchstart="startAdjust('rangeSplit', -1)" ontouchend="stopAdjust()">−</button>
+                    <!-- 預設值改為 10 -->
+                    <input type="range" id="rangeSplit" min="1" max="100" value="10" 
+                           oninput="handleSliderInput(this, 'splitDist')" 
+                           onchange="handleSliderChange(this, 'splitDist')">
+                    <button class="btn-tiny" onmousedown="startAdjust('rangeSplit', 1)" onmouseup="stopAdjust()" onmouseleave="stopAdjust()" ontouchstart="startAdjust('rangeSplit', 1)" ontouchend="stopAdjust()">+</button>
+                </div>
+                <!-- 修正說明：場景 -->
+                <div class="help-text"><span>Split Clumps</span><span>Merge Dots</span></div>
+            </div>
+
+            <button class="toggle-btn" id="btnBoxDelete" onclick="clickBoxDelete()" style="margin-bottom: 8px;">
+                ⬜ Eraser Mode
+            </button>
+            <div class="btn-row">
+                <button class="btn btn-outline" onclick="toggleMarkers()">👁️ Show/Hide Markers</button>
+                <button class="btn btn-danger" onclick="clickRecalculate()">↺ Recalculate</button>
+            </div>
+            <small style="color:#64748b; font-size:0.75rem; text-align: center; display: block; margin-top: 5px;">
+                * Right-click & hold to hide markers
+            </small>
+            <small style="color:#64748b; font-size:0.75rem; text-align: center; display: block; margin-top: 2px;">
+                * Hold <b>Ctrl</b> to Erase anytime
+            </small>
+        </div>
+
+        <div class="sidebar-section">
+            <h4 style="margin:0 0 10px 0; font-size:0.9rem; color:var(--text-sub);">3. Export</h4>
+            <div class="btn-row">
+                <button class="btn btn-outline" style="background:#f0fdf4; border-color:#86efac; color:#166534;" onclick="exportCSV()">📊 CSV</button>
+                <button class="btn btn-outline" onclick="downloadImage()">🖼️ Image</button>
+            </div>
+            <div style="margin-top:10px; font-size:0.75rem; color:#94a3b8; text-align:center;">(Ctrl + Z to Undo)</div>
+        </div>
+    </div>
+
+    <div class="canvas-container" id="canvasWrapper">
+        <div id="placeholder"><div style="font-size: 3.5rem;">📂</div><div style="font-size: 1.2rem; font-weight: 500;">Select an image</div></div>
+        <div id="roiIndicator" class="mode-indicator"><span>🖐️ ROI EDITING MODE</span><span style="font-weight:normal; font-size:0.8rem; border-left:1px solid rgba(0,0,0,0.2); padding-left:8px;">Drag to Move • Wheel to Resize</span></div>
+        <div id="deleteIndicator" class="mode-indicator delete-mode" style="opacity: 0;"><span>🧽 ERASER MODE</span><span style="font-weight:normal; font-size:0.8rem; border-left:1px solid rgba(255,255,255,0.4); padding-left:8px;">Drag to erase</span></div>
+        <canvas id="mainCanvas"></canvas>
+        <div class="loading-overlay" id="loading"><div class="spinner"></div><span>Processing...</span></div>
+        <div class="toolbar">
+            <button class="tool-btn" onclick="adjustZoom(1.1)">+</button>
+            <button class="tool-btn" onclick="resetView()">⟲</button>
+            <button class="tool-btn" onclick="adjustZoom(0.9)">−</button>
+        </div>
+        <div id="toast" class="toast">Undo</div>
+    </div>
+</div>
+
+<!-- Modal -->
+<div id="customModal" class="modal-overlay">
+    <div class="modal-box">
+        <p id="modalMessage" class="modal-msg">Are you sure?</p>
+        <div class="modal-btns">
+            <button class="btn-outline" onclick="closeModal()">Cancel</button>
+            <button class="btn-primary" id="modalConfirmBtn">Confirm</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- Global State ---
+    let images = [];
+    let currentId = null;
+    let view = { scale: 1, offsetX: 0, offsetY: 0 };
+    let showMarkers = true;
+    let interactionMode = 'view'; 
+    let isCtrlPressed = false;
+    let debounceTimer = null; 
+    let isRightClickHide = false;
+    let isDebugMode = false;
+    let viewLayer = 'original'; 
+    const historyStack = [];
+    const MAX_HISTORY = 30;
+
+    // Mouse State
+    let mousePos = { x: 0, y: 0 }; 
+    let hoveredMarkerIndex = -1;
+    let isDragging = false;
+    let dragStart = { x: 0, y: 0 };
+    let isDraggingROI = false; 
+    let roiDragStartParams = {}; 
+    let didMove = false; 
+
+    // DOM
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d');
+    const sidebar = document.getElementById('sidebar');
+    const fileList = document.getElementById('fileList');
+    const loading = document.getElementById('loading');
+    const toast = document.getElementById('toast');
+    const roiIndicator = document.getElementById('roiIndicator');
+    const deleteIndicator = document.getElementById('deleteIndicator');
+    
+    // Sliders
+    const rAdaptSens = document.getElementById('rangeAdaptSens'); 
+    const rAdaptRad = document.getElementById('rangeAdaptRad');   
+    const rSize = document.getElementById('rangeSize');
+    const rSplit = document.getElementById('rangeSplit');
+    const rMask = document.getElementById('rangeMask');
+    
+    // Buttons
+    const btnEditROI = document.getElementById('btnEditROI');
+    const btnBoxDelete = document.getElementById('btnBoxDelete');
+    const btnMaskDec = document.getElementById('btnMaskDec');
+    const btnMaskInc = document.getElementById('btnMaskInc');
+    const btnViewOrig = document.getElementById('btnViewOrig');
+    const btnViewBin = document.getElementById('btnViewBin');
+
+    // Modal
+    const modal = document.getElementById('customModal');
+    const modalMsg = document.getElementById('modalMessage');
+    const modalBtn = document.getElementById('modalConfirmBtn');
+    let onModalConfirm = null;
+    let onModalCancel = null;
+
+    let adjustInterval = null;
+    let adjustTimeout = null;
+
+    // Init
+    ctx.imageSmoothingEnabled = false;
+    window.addEventListener('resize', () => {
+        canvas.width = document.getElementById('canvasWrapper').clientWidth;
+        canvas.height = document.getElementById('canvasWrapper').clientHeight;
+        render();
+    });
+    window.dispatchEvent(new Event('resize'));
+
+    // --- Debug Mode Logic ---
+    function toggleDebugMode() {
+        isDebugMode = !isDebugMode;
+        if (isDebugMode) { sidebar.classList.add('debug'); } 
+        else { sidebar.classList.remove('debug'); setViewLayer('original'); }
+    }
+
+    function setViewLayer(layer) {
+        viewLayer = layer;
+        btnViewOrig.classList.toggle('active', layer === 'original');
+        btnViewBin.classList.toggle('active', layer === 'binary');
+        render();
+    }
+
+    // Key Listeners
+    window.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); performUndo(); }
+        if (e.key === 'Control') { isCtrlPressed = true; updateModeUI(); }
+    });
+    window.addEventListener('keyup', (e) => {
+        if (e.key === 'Control') { isCtrlPressed = false; updateModeUI(); }
+    });
+    document.getElementById('canvasWrapper').addEventListener('contextmenu', e => e.preventDefault());
+
+    function updateModeUI() {
+        if(interactionMode === 'roi') {
+            btnEditROI.classList.add('active'); btnEditROI.innerHTML = '✅ Done Editing';
+            rMask.disabled = false; btnMaskDec.disabled = false; btnMaskInc.disabled = false;
+            roiIndicator.style.opacity = 1; canvas.style.cursor = 'default'; 
+        } else {
+            btnEditROI.classList.remove('active'); btnEditROI.innerHTML = '🖐️ Move/Resize Mask';
+            rMask.disabled = true; btnMaskDec.disabled = true; btnMaskInc.disabled = true;
+            roiIndicator.style.opacity = 0; canvas.style.cursor = 'none'; 
+        }
+        const isDelete = interactionMode === 'delete' || isCtrlPressed;
+        if(isDelete) {
+            deleteIndicator.style.opacity = 1;
+            if(interactionMode === 'delete') { btnBoxDelete.classList.add('active'); btnBoxDelete.innerHTML = '⬜ Exit Eraser'; }
+        } else {
+            deleteIndicator.style.opacity = 0; btnBoxDelete.classList.remove('active'); btnBoxDelete.innerHTML = '⬜ Eraser Mode';
+        }
+        render();
+    }
+
+    // Modal Logic
+    function showConfirm(msg, onConfirm, onCancel) {
+        stopAdjust();
+        modalMsg.innerText = msg;
+        onModalConfirm = onConfirm; onModalCancel = onCancel;
+        modal.style.display = 'flex';
+    }
+    function closeModal() { modal.style.display = 'none'; onModalConfirm = null; onModalCancel = null; }
+    modalBtn.onclick = () => { if(onModalConfirm) onModalConfirm(); closeModal(); };
+    document.querySelector('.modal-btns .btn-outline').onclick = () => { if(onModalCancel) onModalCancel(); closeModal(); }
+
+    // File Handling
+    function handleFiles(e) {
+        const files = Array.from(e.target.files);
+        if(!files.length) return;
+        files.forEach(file => {
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                const img = new Image();
+                img.onload = () => {
+                    const id = Date.now() + Math.random().toString(16).slice(2);
+                    const newObj = {
+                        id,
+                        name: file.name,
+                        imgObj: img,
+                        markers: [],
+                        // v1.3 Params: Adaptive
+                        adaptSens: 10,     
+                        adaptRad: 20,      
+                        minSize: 3,
+                        splitDist: 10,  // Changed default to 10
+                        roi: { x: img.width/2, y: img.height/2, r: Math.min(img.width, img.height)/2 * 0.9 },
+                        processed: false,
+                        hasManualEdits: false,
+                        binaryBitmap: null
+                    };
+                    runAdaptiveDetection(newObj);
+                    images.push(newObj);
+                    updateFileList();
+                    if (!currentId) selectImage(id);
+                };
+                img.src = evt.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+        e.target.value = '';
+    }
+
+    function deleteImage(id, event) {
+        event.stopPropagation();
+        showConfirm("Remove this image from list?", () => {
+            const index = images.findIndex(i => i.id === id);
+            if (index === -1) return;
+            images.splice(index, 1);
+            if (id === currentId) {
+                currentId = null;
+                if (images.length > 0) {
+                    const newIdx = Math.min(index, images.length - 1);
+                    selectImage(images[newIdx].id);
+                } else {
+                    resetViewToEmpty();
+                }
+            } else { updateFileList(); }
+        });
+    }
+
+    function resetViewToEmpty() {
+        currentId = null;
+        document.getElementById('displayName').innerText = 'No Image';
+        document.getElementById('displayCount').innerText = '0';
+        updateFileList();
+        ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
+        document.getElementById('placeholder').style.display = 'flex';
+    }
+
+    function updateFileList() {
+        fileList.innerHTML = '';
+        images.forEach(img => {
+            const div = document.createElement('div');
+            div.className = `file-item ${img.id === currentId ? 'active' : ''}`;
+            div.onclick = () => selectImage(img.id);
+            div.innerHTML = `
+                <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-right:5px;">${img.name}</div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <div class="file-badge">${img.markers.length}</div>
+                    <button class="btn-tiny" style="color:#ef4444; border-color:#fecaca; background:#fef2f2; width:24px; height:24px;" 
+                        onclick="deleteImage('${img.id}', event)">×</button>
+                </div>
+            `;
+            fileList.appendChild(div);
+        });
+    }
+
+    function selectImage(id) {
+        currentId = id;
+        const data = images.find(i => i.id === id);
+        
+        document.getElementById('displayName').innerText = data.name;
+        document.getElementById('displayCount').innerText = data.markers.length;
+        
+        rAdaptSens.value = data.adaptSens;
+        rAdaptRad.value = data.adaptRad;
+        rSize.value = data.minSize;
+        rSplit.value = data.splitDist;
+        const baseR = Math.min(data.imgObj.width, data.imgObj.height) / 2;
+        rMask.value = Math.min(100, Math.round((data.roi.r / baseR) * 100));
+        
+        updateLabels();
+        updateFileList();
+        if(interactionMode !== 'view') { interactionMode = 'view'; }
+        updateModeUI();
+        resetView(data.imgObj);
+        document.getElementById('placeholder').style.display = 'none';
+    }
+
+    // Undo Logic
+    function saveHistory(actionName = "Action") {
+        if (!currentId) return;
+        const data = images.find(i => i.id === currentId);
+        const state = {
+            imageId: currentId,
+            markers: JSON.parse(JSON.stringify(data.markers)),
+            roi: { ...data.roi },
+            adaptSens: data.adaptSens,
+            adaptRad: data.adaptRad,
+            minSize: data.minSize,
+            splitDist: data.splitDist,
+            hasManualEdits: data.hasManualEdits,
+            action: actionName
+        };
+        historyStack.push(state);
+        if (historyStack.length > MAX_HISTORY) historyStack.shift();
+    }
+
+    function performUndo() {
+        if (historyStack.length === 0) { showToast("Nothing to undo"); return; }
+        const lastState = historyStack.pop();
+        if (lastState.imageId !== currentId) {
+            const targetExists = images.find(i => i.id === lastState.imageId);
+            if(targetExists) selectImage(lastState.imageId);
+            else return;
+        }
+        const data = images.find(i => i.id === lastState.imageId);
+        if (!data) return; 
+
+        data.markers = lastState.markers;
+        data.roi = lastState.roi;
+        data.adaptSens = lastState.adaptSens;
+        data.adaptRad = lastState.adaptRad;
+        data.minSize = lastState.minSize;
+        data.splitDist = lastState.splitDist;
+        data.hasManualEdits = lastState.hasManualEdits;
+
+        rAdaptSens.value = data.adaptSens;
+        rAdaptRad.value = data.adaptRad;
+        rSize.value = data.minSize;
+        rSplit.value = data.splitDist;
+        const baseR = Math.min(data.imgObj.width, data.imgObj.height) / 2;
+        rMask.value = Math.min(100, Math.round((data.roi.r / baseR) * 100));
+        
+        if (viewLayer === 'binary') runAdaptiveDetection(data);
+
+        updateLabels();
+        updateFileList();
+        document.getElementById('displayCount').innerText = data.markers.length;
+        render();
+        showToast(`Undid: ${lastState.action}`);
+    }
+
+    function showToast(msg) {
+        toast.innerText = msg; toast.style.opacity = 1; setTimeout(() => toast.style.opacity = 0, 2000);
+    }
+
+    // Slider Logic
+    function adjustSliderValue(id, amount) {
+        const slider = document.getElementById(id);
+        const val = parseInt(slider.value) + amount;
+        slider.value = Math.min(slider.max, Math.max(slider.min, val));
+        slider.dispatchEvent(new Event('input'));
+        slider.dispatchEvent(new Event('change'));
+    }
+
+    function startAdjust(id, amount) {
+        const slider = document.getElementById(id);
+        if(slider.disabled) return; 
+        if ((id === 'rangeAdaptSens' || id === 'rangeAdaptRad' || id === 'rangeSize' || id === 'rangeSplit')) {
+             if (currentId && images.find(i => i.id === currentId).hasManualEdits) {
+                 requestSafeAction("Parameter Change", () => { performAdjustSequence(id, amount); }, () => {});
+                 return;
+             }
+        }
+        performAdjustSequence(id, amount);
+    }
+
+    function performAdjustSequence(id, amount) {
+        adjustSliderValue(id, amount);
+        adjustTimeout = setTimeout(() => {
+            adjustInterval = setInterval(() => { adjustSliderValue(id, amount); }, 100);
+        }, 500);
+    }
+
+    function stopAdjust() { clearTimeout(adjustTimeout); clearInterval(adjustInterval); }
+    
+    function handleSliderInput(slider, field) { if (!currentId) return; updateLabels(); }
+    
+    function handleSliderChange(slider, field) {
+        if (!currentId) return;
+        const data = images.find(i => i.id === currentId);
+        if (data[field] === parseInt(slider.value)) return;
+        if (data.hasManualEdits) {
+            requestSafeAction("Parameter Change", () => { updateParams(true); }, () => {
+                slider.value = data[field];
+                updateLabels();
+            });
+        } else {
+            updateParams(true);
+        }
+    }
+
+    function requestSafeAction(actionName, onConfirm, onCancel) {
+        if(!currentId) return;
+        const data = images.find(i => i.id === currentId);
+        if (!data.hasManualEdits) { onConfirm(); return; }
+        const dryRunMarkers = dryRunDetection(data, true); 
+        const addedCount = data.markers.filter(m => m.manual).length;
+        const currentAlgoCount = data.markers.filter(m => !m.manual).length;
+        const deletedCount = Math.max(0, dryRunMarkers.length - currentAlgoCount);
+        const msg = `${actionName} will discard your edits:\n\n🟢 Manual Added: ${addedCount}\n🔴 Manual Deleted: ${deletedCount}\n\nProceed?`;
+        showConfirm(msg, onConfirm, onCancel);
+    }
+
+    function clickReset() {
+        requestSafeAction("Reset", () => {
+            saveHistory("Reset All");
+            const data = images.find(i => i.id === currentId);
+            data.roi = { x: data.imgObj.width/2, y: data.imgObj.height/2, r: Math.min(data.imgObj.width, data.imgObj.height)/2 * 0.9 };
+            rMask.value = 90;
+            runAdaptiveDetection(data);
+            updateLabels(); updateFileList(); document.getElementById('displayCount').innerText = data.markers.length; render();
+        });
+    }
+
+    function clickRecalculate() {
+        requestSafeAction("Recalculate", () => { saveHistory("Recalculate"); updateParams(false); });
+    }
+
+    function clickToggleROI() {
+        if(!currentId) return;
+        if (interactionMode === 'view' || interactionMode === 'delete') {
+            requestSafeAction("Entering ROI Edit mode", () => { toggleEditROI(); });
+        } else { toggleEditROI(); }
+    }
+
+    function clickBoxDelete() {
+        if (interactionMode === 'delete') { interactionMode = 'view'; } 
+        else {
+            if (interactionMode === 'roi') toggleEditROI(true); 
+            interactionMode = 'delete';
+        }
+        updateModeUI();
+    }
+
+    function toggleEditROI(forceClose = false) {
+        if (forceClose && interactionMode !== 'roi') return;
+        if(interactionMode === 'roi' || forceClose) {
+            interactionMode = 'view';
+            saveHistory("ROI Edit Finish");
+            updateParams(false); 
+        } else {
+            interactionMode = 'roi';
+            const data = images.find(i => i.id === currentId);
+            runAdaptiveDetection(data); 
+            saveHistory("ROI Edit Start");
+        }
+        updateModeUI();
+    }
+
+    function updateROIParam() {
+        if(!currentId) return;
+        const data = images.find(i => i.id === currentId);
+        const pct = parseInt(rMask.value) / 100;
+        const baseR = Math.min(data.imgObj.width, data.imgObj.height) / 2;
+        data.roi.r = baseR * pct;
+        updateLabels(); render();
+    }
+    rMask.addEventListener('change', () => saveHistory("ROI Resize"));
+
+    // --- V1.3 ALGORITHM: Adaptive Thresholding + Distance Transform ---
+    
+    function runAdaptiveDetection(data) {
+        const resultMarkers = dryRunDetection(data, false); 
+        data.hasManualEdits = false; 
+        data.markers = resultMarkers;
+        data.processed = true;
+    }
+
+    // Integral Image Calculation
+    function computeIntegralImage(pixels, w, h) {
+        // Only Luma channel needed
+        const integral = new Float64Array(w * h);
+        for (let y = 0; y < h; y++) {
+            let rowSum = 0;
+            for (let x = 0; x < w; x++) {
+                const idx = (y * w + x) * 4;
+                const luma = (pixels[idx] + pixels[idx+1] + pixels[idx+2]) / 3;
+                rowSum += luma;
+                if (y === 0) {
+                    integral[y * w + x] = rowSum;
+                } else {
+                    integral[y * w + x] = rowSum + integral[(y - 1) * w + x];
+                }
+            }
+        }
+        return integral;
+    }
+
+    function getBoxSum(integral, w, h, x1, y1, x2, y2) {
+        x1 = Math.max(0, x1); y1 = Math.max(0, y1);
+        x2 = Math.min(w - 1, x2); y2 = Math.min(h - 1, y2);
+        
+        const A = (x1 > 0 && y1 > 0) ? integral[(y1 - 1) * w + (x1 - 1)] : 0;
+        const B = (y1 > 0) ? integral[(y1 - 1) * w + x2] : 0;
+        const C = (x1 > 0) ? integral[y2 * w + (x1 - 1)] : 0;
+        const D = integral[y2 * w + x2];
+        
+        return D - B - C + A;
+    }
+
+    function dryRunDetection(data, skipBitmap) {
+        const w = data.imgObj.width;
+        const h = data.imgObj.height;
+        const tmpCanvas = document.createElement('canvas');
+        tmpCanvas.width = w; tmpCanvas.height = h;
+        const tCtx = tmpCanvas.getContext('2d');
+        tCtx.drawImage(data.imgObj, 0, 0);
+        const imgData = tCtx.getImageData(0, 0, w, h);
+        const pixels = imgData.data;
+
+        // V1.3 Params
+        const sens = data.adaptSens; // Added to mean
+        const rad = data.adaptRad;   // Box radius
+        const minPeakH = data.minSize; 
+        const splitDist = data.splitDist;
+        const roiRSq = data.roi.r * data.roi.r;
+        const dxMask = data.roi.x;
+        const dyMask = data.roi.y;
+
+        // 1. Integral Image
+        const integral = computeIntegralImage(pixels, w, h);
+        const INF = 999999;
+        const distMap = new Int32Array(w * h);
+
+        // 2. Adaptive Binary
+        for(let y=0; y<h; y++) {
+            for(let x=0; x<w; x++) {
+                const idx = y*w + x;
+                
+                // ROI Check first
+                const distSq = (x - dxMask)**2 + (y - dyMask)**2;
+                if(distSq > roiRSq) {
+                    distMap[idx] = 0;
+                    if (!skipBitmap) {
+                        pixels[idx*4+3] = 0; // Transparent
+                    }
+                    continue;
+                }
+
+                // Adaptive Logic
+                const count = (Math.min(w-1, x+rad) - Math.max(0, x-rad) + 1) * (Math.min(h-1, y+rad) - Math.max(0, y-rad) + 1);
+                const sum = getBoxSum(integral, w, h, x-rad, y-rad, x+rad, y+rad);
+                const mean = sum / count;
+                
+                const luma = (pixels[idx*4] + pixels[idx*4+1] + pixels[idx*4+2]) / 3;
+                
+                // Bright colonies on dark/variable background usually
+                // Condition: Pixel > Mean + Sensitivity
+                const isFore = (luma > (mean + sens));
+                
+                distMap[idx] = isFore ? INF : 0;
+
+                if (!skipBitmap) {
+                    const val = isFore ? 255 : 0;
+                    pixels[idx*4] = val; pixels[idx*4+1] = val; pixels[idx*4+2] = val;
+                    pixels[idx*4+3] = 255;
+                }
+            }
+        }
+
+        if (!skipBitmap) {
+            tCtx.putImageData(imgData, 0, 0);
+            createImageBitmap(tmpCanvas).then(bitmap => {
+                data.binaryBitmap = bitmap;
+                if (viewLayer === 'binary') render(); 
+            });
+        }
+
+        // 3. Distance Transform (Manhattan)
+        for(let y=0; y<h; y++) {
+            for(let x=0; x<w; x++) {
+                const idx = y*w + x;
+                if(distMap[idx] > 0) {
+                    const up = (y>0) ? distMap[idx-w] : 0;
+                    const left = (x>0) ? distMap[idx-1] : 0;
+                    distMap[idx] = Math.min(up, left) + 1;
+                }
+            }
+        }
+        for(let y=h-1; y>=0; y--) {
+            for(let x=w-1; x>=0; x--) {
+                const idx = y*w + x;
+                if(distMap[idx] > 0) {
+                    const down = (y<h-1) ? distMap[idx+w] : 0;
+                    const right = (x<w-1) ? distMap[idx+1] : 0;
+                    let minN = Math.min(down, right);
+                    if (distMap[idx] > minN + 1) { distMap[idx] = minN + 1; }
+                }
+            }
+        }
+
+        // 4. Local Maxima
+        const candidates = [];
+        for(let y=1; y<h-1; y++) {
+            for(let x=1; x<w-1; x++) {
+                const idx = y*w + x;
+                const val = distMap[idx];
+                if(val < minPeakH) continue;
+                candidates.push({x, y, v: val});
+            }
+        }
+        candidates.sort((a, b) => b.v - a.v);
+
+        // 5. Greedy Suppression
+        const markers = [];
+        const splitSq = splitDist * splitDist;
+        for(let i=0; i<candidates.length; i++) {
+            const cand = candidates[i];
+            let keep = true;
+            for(let j=0; j<markers.length; j++) {
+                const m = markers[j];
+                const d2 = (cand.x - m.x)**2 + (cand.y - m.y)**2;
+                if(d2 < splitSq) { keep = false; break; }
+            }
+            if(keep) { markers.push({x: cand.x, y: cand.y, manual: false}); }
+        }
+        return markers;
+    }
+
+    // --- Update Handling ---
+    function updateParams(saveToHistory = true) {
+        if(!currentId) return;
+        const data = images.find(i => i.id === currentId);
+        if(saveToHistory) saveHistory("Param Update");
+
+        data.adaptSens = parseInt(rAdaptSens.value);
+        data.adaptRad = parseInt(rAdaptRad.value);
+        data.minSize = parseInt(rSize.value);
+        data.splitDist = parseInt(rSplit.value);
+        updateLabels();
+
+        loading.style.display = 'flex';
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            runAdaptiveDetection(data); 
+            document.getElementById('displayCount').innerText = data.markers.length;
+            updateFileList();
+            render();
+            loading.style.display = 'none';
+        }, 50);
+    }
+
+    function updateLabels() {
+        document.getElementById('valAdaptSens').innerText = rAdaptSens.value;
+        document.getElementById('valAdaptRad').innerText = rAdaptRad.value;
+        document.getElementById('valSize').innerText = rSize.value;
+        document.getElementById('valSplit').innerText = rSplit.value;
+        document.getElementById('valMask').innerText = document.getElementById('rangeMask').value + '%';
+    }
+
+    // View & Interaction
+    function render() {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        if(!currentId) return;
+        const data = images.find(i => i.id === currentId);
+
+        ctx.setTransform(view.scale, 0, 0, view.scale, view.offsetX, view.offsetY);
+        
+        if (viewLayer === 'binary' && data.binaryBitmap) {
+            ctx.drawImage(data.binaryBitmap, 0, 0);
+        } else {
+            ctx.drawImage(data.imgObj, 0, 0);
+        }
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.beginPath();
+        ctx.rect(-1000, -1000, data.imgObj.width+2000, data.imgObj.height+2000);
+        ctx.arc(data.roi.x, data.roi.y, data.roi.r, 0, Math.PI*2, true);
+        ctx.fill();
+
+        ctx.lineWidth = 2 / view.scale;
+        ctx.strokeStyle = (interactionMode === 'roi') ? '#fbbf24' : 'rgba(255, 255, 0, 0.5)';
+        if(interactionMode === 'roi') ctx.setLineDash([5, 5]);
+        ctx.beginPath(); ctx.arc(data.roi.x, data.roi.y, data.roi.r, 0, Math.PI*2); ctx.stroke();
+        ctx.setLineDash([]);
+        
+        if(interactionMode === 'roi') {
+            ctx.fillStyle = '#fbbf24'; ctx.beginPath(); ctx.arc(data.roi.x, data.roi.y, 5 / view.scale, 0, Math.PI*2); ctx.fill();
+        }
+
+        const actualShowMarkers = showMarkers && !isRightClickHide;
+        if(actualShowMarkers) {
+            const r = 6 / view.scale; const lw = 2 / view.scale; 
+            data.markers.forEach((m, i) => {
+                ctx.lineWidth = lw;
+                ctx.beginPath(); ctx.arc(m.x, m.y, r, 0, Math.PI*2);
+                ctx.strokeStyle = m.manual ? '#4ade80' : '#f87171'; ctx.stroke();
+                if(i === hoveredMarkerIndex && interactionMode === 'view' && !isRightClickHide) {
+                    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = lw * 2; ctx.stroke();
+                }
+            });
+        }
+
+        const isPanning = isDragging && interactionMode === 'view' && !isCtrlPressed;
+        if(interactionMode !== 'roi' && !isPanning && !isRightClickHide) {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            const x = mousePos.x; const y = mousePos.y;
+            if(interactionMode === 'delete' || isCtrlPressed) {
+                ctx.beginPath(); ctx.arc(x, y, 15, 0, Math.PI*2); 
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)'; ctx.fill();
+                ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2; ctx.stroke();
+                ctx.font = "16px Arial"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+                ctx.fillStyle = "#ef4444"; ctx.fillText("🧽", x, y);
+            } else {
+                if(hoveredMarkerIndex !== -1) {
+                    ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI*2);
+                    ctx.strokeStyle = '#f87171'; ctx.lineWidth = 2; ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(x-4, y-4); ctx.lineTo(x+4, y+4); ctx.moveTo(x+4, y-4); ctx.lineTo(x-4, y+4); ctx.stroke();
+                } else {
+                    ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI*2);
+                    ctx.strokeStyle = '#4ade80'; ctx.lineWidth = 2; 
+                    ctx.setLineDash([2, 2]); ctx.stroke(); ctx.setLineDash([]);
+                    ctx.beginPath(); ctx.moveTo(x, y-4); ctx.lineTo(x, y+4); ctx.moveTo(x-4, y); ctx.lineTo(x+4, y); ctx.stroke();
+                }
+            }
+        }
+    }
+
+    // --- Mouse Events ---
+    function updateHoverAndCursor(e) {
+        const rect = canvas.getBoundingClientRect();
+        mousePos.x = e.clientX - rect.left;
+        mousePos.y = e.clientY - rect.top;
+        const imgX = (mousePos.x - view.offsetX) / view.scale;
+        const imgY = (mousePos.y - view.offsetY) / view.scale;
+        const data = images.find(i => i.id === currentId);
+        if(!data) return;
+
+        if((interactionMode === 'delete' || isCtrlPressed) && isDragging) {
+            const initialLen = data.markers.length;
+            const eraseR = 15 / view.scale; const eraseRSq = eraseR * eraseR;
+            data.markers = data.markers.filter(m => {
+                const distSq = (m.x - imgX)**2 + (m.y - imgY)**2;
+                return distSq > eraseRSq;
+            });
+            if(data.markers.length !== initialLen) {
+                data.hasManualEdits = true;
+                document.getElementById('displayCount').innerText = data.markers.length;
+                updateFileList();
+            }
+        }
+
+        hoveredMarkerIndex = -1;
+        if(interactionMode === 'view' && !isCtrlPressed) {
+            const hitR = 15 / view.scale;
+            let minD = Infinity;
+            for(let i=0; i<data.markers.length; i++) {
+                const m = data.markers[i];
+                const dist = Math.sqrt((m.x - imgX)**2 + (m.y - imgY)**2);
+                if(dist < hitR && dist < minD) {
+                    minD = dist; hoveredMarkerIndex = i;
+                }
+            }
+        }
+        render();
+    }
+
+    canvas.addEventListener('mousemove', e => {
+        const rect = canvas.getBoundingClientRect();
+        mousePos.x = e.clientX - rect.left;
+        mousePos.y = e.clientY - rect.top;
+        const imgX = (mousePos.x - view.offsetX) / view.scale;
+        const imgY = (mousePos.y - view.offsetY) / view.scale;
+
+        if(isDraggingROI && currentId) {
+            const dx = imgX - dragStart.x; const dy = imgY - dragStart.y;
+            if (Math.abs(dx) > 1 || Math.abs(dy) > 1) didMove = true;
+            const data = images.find(i => i.id === currentId);
+            data.roi.x += dx; data.roi.y += dy;
+            dragStart = { x: imgX, y: imgY }; render(); return;
+        }
+
+        if(isDragging && interactionMode === 'view' && !isCtrlPressed) {
+             const dx = mousePos.x - dragStart.x;
+             const dy = mousePos.y - dragStart.y;
+             if (Math.abs(dx) > 2 || Math.abs(dy) > 2) didMove = true;
+             view.offsetX += dx; view.offsetY += dy;
+             dragStart = { x: mousePos.x, y: mousePos.y };
+             render(); return; 
+        }
+        updateHoverAndCursor(e);
+    });
+
+    canvas.addEventListener('mousedown', e => {
+        const rect = canvas.getBoundingClientRect();
+        mousePos.x = e.clientX - rect.left;
+        mousePos.y = e.clientY - rect.top;
+        const imgX = (mousePos.x - view.offsetX) / view.scale;
+        const imgY = (mousePos.y - view.offsetY) / view.scale;
+        didMove = false;
+
+        if (e.button === 2) { isRightClickHide = true; render(); return; }
+        if (e.button !== 0) return;
+
+        if(interactionMode === 'roi' && currentId) {
+            const data = images.find(i => i.id === currentId);
+            const dx = imgX - data.roi.x; const dy = imgY - data.roi.y;
+            if(dx*dx + dy*dy < data.roi.r * data.roi.r) {
+                isDraggingROI = true; roiDragStartParams = { ...data.roi }; 
+                saveHistory("ROI Move Start"); 
+                dragStart = { x: imgX, y: imgY }; canvas.style.cursor = 'move';
+                return;
+            }
+        }
+        isDragging = true; dragStart = { x: mousePos.x, y: mousePos.y }; 
+        if (interactionMode === 'delete' || isCtrlPressed) {
+            saveHistory("Eraser"); updateHoverAndCursor(e);
+        } else if (interactionMode === 'view') {
+            canvas.style.cursor = 'grabbing'; 
+        }
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (isRightClickHide) { isRightClickHide = false; render(); }
+        isDragging = false; isDraggingROI = false; 
+        if(interactionMode === 'view') canvas.style.cursor = 'none'; 
+    });
+
+    canvas.addEventListener('click', e => {
+        if(interactionMode === 'roi' || isDraggingROI || !currentId) return;
+        if(interactionMode === 'delete' || isCtrlPressed) return; 
+        if (didMove) return; 
+        if (e.button === 2) return;
+
+        const data = images.find(i => i.id === currentId);
+        const rect = canvas.getBoundingClientRect();
+        const imgX = (e.clientX - rect.left - view.offsetX) / view.scale;
+        const imgY = (e.clientY - rect.top - view.offsetY) / view.scale;
+        if(imgX<0 || imgY<0 || imgX>data.imgObj.width || imgY>data.imgObj.height) return;
+
+        saveHistory("Add/Remove Marker");
+        if(hoveredMarkerIndex !== -1) { data.markers.splice(hoveredMarkerIndex, 1); } 
+        else { data.markers.push({x: imgX, y: imgY, manual: true}); }
+        
+        data.hasManualEdits = true; 
+        document.getElementById('displayCount').innerText = data.markers.length;
+        updateFileList();
+        updateHoverAndCursor(e);
+    });
+
+    function adjustZoom(f) { view.scale *= f; render(); }
+    function resetView(img) {
+        if(!img) { if(!currentId) return; img = images.find(i => i.id === currentId).imgObj; }
+        const ratio = Math.min(canvas.width/img.width, canvas.height/img.height);
+        view.scale = ratio * 0.9;
+        view.offsetX = (canvas.width - img.width*view.scale)/2;
+        view.offsetY = (canvas.height - img.height*view.scale)/2;
+        render();
+    }
+    
+    canvas.addEventListener('wheel', e => {
+        e.preventDefault();
+        if(interactionMode === 'roi' && currentId) {
+            const data = images.find(i => i.id === currentId);
+            const delta = e.deltaY > 0 ? 0.95 : 1.05;
+            data.roi.r *= delta;
+            const baseR = Math.min(data.imgObj.width, data.imgObj.height) / 2;
+            rMask.value = Math.min(100, Math.round((data.roi.r / baseR) * 100));
+            updateLabels(); render(); return;
+        }
+        const f = e.deltaY > 0 ? 0.9 : 1.1;
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+        view.offsetX = mx - (mx - view.offsetX) * f;
+        view.offsetY = my - (my - view.offsetY) * f;
+        view.scale *= f; render();
+        mousePos.x = mx; mousePos.y = my;
+        updateHoverAndCursor(e); 
+    });
+
+    function toggleMarkers() { showMarkers = !showMarkers; render(); }
+    
+    function directDownload(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = filename; 
+        document.body.appendChild(a); a.click(); 
+        document.body.removeChild(a); URL.revokeObjectURL(url); 
+    }
+
+    function exportCSV() {
+        if(!images.length) return alert('No data');
+        let csv = "Filename,Count,AdaptSens,AdaptRad,MinSize,SplitDist\n";
+        images.forEach(img => csv += `"${img.name}",${img.markers.length},${img.adaptSens},${img.adaptRad},${img.minSize},${img.splitDist}\n`);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const name = `colony_counts_${Date.now()}.csv`;
+        directDownload(blob, name);
+    }
+    
+    function downloadImage() {
+        if(!currentId) return;
+        const data = images.find(i => i.id === currentId);
+        const c = document.createElement('canvas');
+        c.width = data.imgObj.width; c.height = data.imgObj.height;
+        const cx = c.getContext('2d');
+        if (viewLayer === 'binary' && data.binaryBitmap) { cx.drawImage(data.binaryBitmap, 0, 0); } 
+        else { cx.drawImage(data.imgObj, 0, 0); }
+        cx.lineWidth = 3;
+        data.markers.forEach(m => {
+            cx.beginPath(); cx.arc(m.x, m.y, 8, 0, Math.PI*2);
+            cx.strokeStyle = m.manual ? '#00ff00' : '#ff0000'; cx.stroke();
+        });
+        c.toBlob((blob) => {
+            if (blob) {
+                const name = `marked_${data.name.split('.')[0]}_${Date.now()}.png`;
+                directDownload(blob, name);
+            }
+        }, 'image/png');
+    }
+</script>
+</body>
+</html>
